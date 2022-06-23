@@ -19,12 +19,13 @@ import ssl
 import os
 import itertools
 import functools
+
 log = logging.getLogger('Transport')
 
-from . import Message
-from . import Header
-from . import Security
-from . import Utils
+from . import message
+from . import header
+from . import security
+from . import utils
 
 
 @atexit.register
@@ -32,14 +33,17 @@ def cleanup():
     for transport in Transport.instances:
         transport.stop()
 
+
 class Transport(multiprocessing.Process):
     instances = weakref.WeakSet()
+
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         Transport.instances.add(instance)
         return instance
 
-    def __init__(self, *, interface=None, address=None, port=None, behindnat=None, protocol='UDP+TCP', maxudp=1300, cafile=None, hostname=None, errorcb=None, sendcb=None, recvcb=None):
+    def __init__(self, *, interface=None, address=None, port=None, behindnat=None, protocol='UDP+TCP', maxudp=1300,
+                 cafile=None, hostname=None, errorcb=None, sendcb=None, recvcb=None):
         self.started = False
 
         self.localip = self.localport = None
@@ -50,7 +54,7 @@ class Transport(multiprocessing.Process):
         # build a list of candidate ip address from parameters 'interface' and 'address'
         addresses = []
         loopbackaddresses = []
-        interfaces,loopbackinterfaces = Utils.getinterfaces()
+        interfaces, loopbackinterfaces = Utils.getinterfaces()
         if interface and interface not in interfaces and interface not in loopbackinterfaces:
             log.logandraise(Exception("unknown interface {}".format(interface)))
         if interface in interfaces:
@@ -63,9 +67,11 @@ class Transport(multiprocessing.Process):
 
         if isinstance(address, int):
             if address < 0:
-                log.logandraise(Exception("bad integer value for address ({}). Expecting a positive value".format(address)))
+                log.logandraise(
+                    Exception("bad integer value for address ({}). Expecting a positive value".format(address)))
             elif address >= len(addresses):
-                log.logandraise(Exception("bad integer value for address ({}). Maximum value is {}".format(address, len(addresses)-1)))
+                log.logandraise(Exception(
+                    "bad integer value for address ({}). Maximum value is {}".format(address, len(addresses) - 1)))
             else:
                 addresses = [addresses[address]]
         elif address:
@@ -77,7 +83,7 @@ class Transport(multiprocessing.Process):
         firstaddress = addresses[0]
 
         # build a list of candidate ports
-        if port is not None and (not isinstance(port, int) or port<=0 or port>=65536):
+        if port is not None and (not isinstance(port, int) or port <= 0 or port >= 65536):
             log.logandraise(Exception("bad value for port ({})".format(port)))
         if port is not None:
             ports = [port]
@@ -87,10 +93,10 @@ class Transport(multiprocessing.Process):
                 firstport = 5061
             else:
                 firstport = 5060
-            ports = range(firstport,65536,2)
+            ports = range(firstport, 65536, 2)
 
         # candidate couples (port, address)
-        candidates = itertools.product(ports,addresses)
+        candidates = itertools.product(ports, addresses)
 
         # find the first candidate not already used by another transport instance
         reserved = [(t.localport, t.localip) for t in Transport.instances]
@@ -99,7 +105,7 @@ class Transport(multiprocessing.Process):
                 break
         else:
             candidate = (firstport, firstaddress)
-        self.localport,self.localip = candidate
+        self.localport, self.localip = candidate
 
         if isinstance(behindnat, str):
             if ':' in behindnat:
@@ -115,8 +121,8 @@ class Transport(multiprocessing.Process):
         self.errorcb = errorcb
         self.sendcb = sendcb
         self.recvcb = recvcb
-        self.messagepipe,self.childmessagepipe = multiprocessing.Pipe()
-        self.commandpipe,self.childcommandpipe = multiprocessing.Pipe()
+        self.messagepipe, self.childmessagepipe = multiprocessing.Pipe()
+        self.commandpipe, self.childcommandpipe = multiprocessing.Pipe()
         multiprocessing.Process.__init__(self)
         self.start()
         self.started = True
@@ -154,13 +160,13 @@ class Transport(multiprocessing.Process):
 
         if (not issip) or isrequest:
             assert addr
-            dstip,dstport = addr
+            dstip, dstport = addr
             protocol = self.protocol
             if protocol == 'TLS':
                 dstport = dstport or 5061
                 if issip:
                     message.length = len(message.body)
-                fd,srcport = self.gettlssocket(dstip, dstport, cafile=self.cafile, hostname=self.hostname)
+                fd, srcport = self.gettlssocket(dstip, dstport, cafile=self.cafile, hostname=self.hostname)
                 viaport = self.localport
                 addr = (dstip, dstport)
             else:
@@ -187,7 +193,7 @@ class Transport(multiprocessing.Process):
                     protocol = '{}/ESP'.format(protocol)
                 else:
                     if protocol == 'TCP':
-                        fd,srcport = self.gettcpsocket(dstip, dstport)
+                        fd, srcport = self.gettcpsocket(dstip, dstport)
                         viaport = self.localport
                         addr = (dstip, dstport)
                     elif protocol == 'UDP':
@@ -199,11 +205,11 @@ class Transport(multiprocessing.Process):
             if via:
                 via.protocol = protocol[:3]
                 if self.behindnat:
-                     via.host,via.port = self.behindnat
-                     via.params['rport']=None
+                    via.host, via.port = self.behindnat
+                    via.params['rport'] = None
                 else:
                     via.host = self.localip
-                    via.port = viaport if viaport!=5060 else None
+                    via.port = viaport if viaport != 5060 else None
 
         elif isresponse:
             assert addr is None
@@ -218,7 +224,7 @@ class Transport(multiprocessing.Process):
             if self.protocol == 'TLS':
                 dstport = dstport or 5061
                 message.length = len(message.body)
-                fd,srcport = self.gettlssocket(dstip, dstport, message.fd, self.cafile, self.hostname)
+                fd, srcport = self.gettlssocket(dstip, dstport, message.fd, self.cafile, self.hostname)
                 addr = (dstip, dstport)
             else:
                 dstport = dstport or 5060
@@ -237,7 +243,7 @@ class Transport(multiprocessing.Process):
                     protocol = '{}/ESP'.format(protocol)
                 else:
                     if protocol == 'TCP':
-                        fd,srcport = self.gettcpsocket(dstip, dstport, message.fd)
+                        fd, srcport = self.gettcpsocket(dstip, dstport, message.fd)
                         addr = (dstip, dstport)
                     elif protocol == 'UDP':
                         fd = self.mainudp
@@ -256,7 +262,7 @@ class Transport(multiprocessing.Process):
         try:
             if not self.messagepipe.poll(timeout):
                 return None
-            fd,protocol,(srcip,srcport),dstport,decodeinfo = self.messagepipe.recv()
+            fd, protocol, (srcip, srcport), dstport, decodeinfo = self.messagepipe.recv()
         except:
             return None
         message = decodeinfo.finish()
@@ -264,7 +270,7 @@ class Transport(multiprocessing.Process):
             return None
         else:
             message.fd = fd
-            if isinstance(message, Message.SIPRequest):
+            if isinstance(message, message.SIPRequest):
                 via = message.header('via')
                 if via:
                     if via.host != srcip:
@@ -273,9 +279,11 @@ class Transport(multiprocessing.Process):
                         via.params['received'] = srcip
                         via.params['rport'] = srcport
             esp = ''
-            if self.SAestablished and srcip == self.remotesa['ip'] and dstport in (self.localsa['portc'],self.localsa['ports']):
+            if self.SAestablished and srcip == self.remotesa['ip'] and dstport in (
+            self.localsa['portc'], self.localsa['ports']):
                 esp = '/ESP'
-            log.info("%s:%s <-%s%s-- %s:%d (fd=%d)\n%s", self.localip, dstport, protocol, esp, srcip, srcport, fd, message)
+            log.info("%s:%s <-%s%s-- %s:%d (fd=%d)\n%s", self.localip, dstport, protocol, esp, srcip, srcport, fd,
+                     message)
             if self.recvcb:
                 mess = self.recvcb(message)
                 if mess is not None:
@@ -308,20 +316,20 @@ class Transport(multiprocessing.Process):
         return fd
 
     def gettcpsocket(self, remoteip, remoteport, fd=None):
-        fd,localport = self.command('gettcp', (remoteip, remoteport), fd)
+        fd, localport = self.command('gettcp', (remoteip, remoteport), fd)
         return fd, localport
 
     def gettlssocket(self, remoteip, remoteport, fd=None, cafile=None, hostname=None):
-        fd,localport = self.command('gettls', (remoteip, remoteport), fd, cafile, hostname)
+        fd, localport = self.command('gettls', (remoteip, remoteport), fd, cafile, hostname)
         return fd, localport
 
     def prepareSA(self, remoteip):
         self.localsa = self.command('sa', 'prepare', self.localip, remoteip)
-        sa = {k:self.localsa[k] for k in ('spis', 'spic', 'ports', 'portc')}
+        sa = {k: self.localsa[k] for k in ('spis', 'spic', 'ports', 'portc')}
         return sa
 
     def establishSA(self, **kwargs):
-        self.remotesa  = self.command('sa', 'establish', kwargs)
+        self.remotesa = self.command('sa', 'establish', kwargs)
         self.SAestablished = True
 
     def terminateSA(self, **kwargs):
@@ -376,7 +384,8 @@ class Transport(multiprocessing.Process):
                                 tcplisteningsocket.listen()
                                 self.childcommandpipe.send(tcplisteningsocket.fileno())
                             except Exception as err:
-                                extra = ". errno={}".format(errno.errorcode[err.errno]) if isinstance(err, OSError) else ''
+                                extra = ". errno={}".format(errno.errorcode[err.errno]) if isinstance(err,
+                                                                                                      OSError) else ''
                                 exc = Exception("cannot bind TCP socket to {}:{}{}".format(*localaddr, extra))
                                 tcplisteningsocket.close()
                                 tcplisteningsocket = None
@@ -387,11 +396,12 @@ class Transport(multiprocessing.Process):
                                 mainudp.bind(localaddr)
                                 self.childcommandpipe.send(mainudp.fileno())
                             except Exception as err:
-                                extra = ". errno={}".format(errno.errorcode[err.errno]) if isinstance(err, OSError) else ''
+                                extra = ". errno={}".format(errno.errorcode[err.errno]) if isinstance(err,
+                                                                                                      OSError) else ''
                                 exc = Exception("cannot bind UDP socket to {}:{}{}".format(*localaddr, extra))
                                 self.childcommandpipe.send(exc)
                     elif command[0] in ('gettcp', 'gettls'):
-                        remoteaddr,fd = command[1:3]
+                        remoteaddr, fd = command[1:3]
                         if command[0] == 'gettls':
                             tls = command[3:]
                         else:
@@ -400,12 +410,12 @@ class Transport(multiprocessing.Process):
                         # try to reuse existing socket
                         found = None
                         for sock in servicesockets:
-                            if fd==sock.fileno():
+                            if fd == sock.fileno():
                                 found = sock
                                 break
                         if not found:
                             for sock in servicesockets:
-                                if remoteaddr==sock.getpeername():
+                                if remoteaddr == sock.getpeername():
                                     found = sock
                                     break
                         if found:
@@ -425,11 +435,13 @@ class Transport(multiprocessing.Process):
                                 self.childcommandpipe.send(exc)
                                 continue
                             except ssl.SSLError as err:
-                                exc = Exception("cannot connect to {}:{}. {} {}".format(*remoteaddr, err.library, err.reason))
+                                exc = Exception(
+                                    "cannot connect to {}:{}. {} {}".format(*remoteaddr, err.library, err.reason))
                                 self.childcommandpipe.send(exc)
                                 continue
                             except OSError as err:
-                                exc = Exception("cannot connect to {}:{}. errno={}".format(*remoteaddr, errno.errorcode[err.errno]))
+                                exc = Exception(
+                                    "cannot connect to {}:{}. errno={}".format(*remoteaddr, errno.errorcode[err.errno]))
                                 self.childcommandpipe.send(exc)
                                 continue
                             except Exception as err:
@@ -442,18 +454,19 @@ class Transport(multiprocessing.Process):
                         try:
                             if command[1] == 'prepare':
                                 sa = Security.SA(*command[2:])
-                                local  = dict(ip=sa.local.ip,
-                                              spis=sa.local.spis,  spic=sa.local.spic,
-                                              ports=sa.local.ports,  portc=sa.local.portc,
-                                              udpc=sa.local.udpc.fileno(), udps=sa.local.udps.fileno(),
-                                              tcpc=sa.local.tcpc.fileno(), tcps=sa.local.tcps.fileno()
-                                )
+                                local = dict(ip=sa.local.ip,
+                                             spis=sa.local.spis, spic=sa.local.spic,
+                                             ports=sa.local.ports, portc=sa.local.portc,
+                                             udpc=sa.local.udpc.fileno(), udps=sa.local.udps.fileno(),
+                                             tcpc=sa.local.tcpc.fileno(), tcps=sa.local.tcps.fileno()
+                                             )
                                 self.childcommandpipe.send(local)
                             elif command[1] == 'establish':
                                 sa.finalize(**command[2])
-                                remote = dict(ip=sa.remote.ip, spis=sa.remote.spis, spic=sa.remote.spic, ports=sa.remote.ports, portc=sa.remote.portc)
+                                remote = dict(ip=sa.remote.ip, spis=sa.remote.spis, spic=sa.remote.spic,
+                                              ports=sa.remote.ports, portc=sa.remote.portc)
                                 tcpc = ServiceSocket(sa.local.tcpc)
-                                tcpc.connect((sa.remote.ip,sa.remote.ports))
+                                tcpc.connect((sa.remote.ip, sa.remote.ports))
                                 servicesockets.append(tcpc)
                                 self.childcommandpipe.send(remote)
                             elif command[1] == 'terminate':
@@ -467,16 +480,17 @@ class Transport(multiprocessing.Process):
 
                 # Message comming from main process --> send to remote address
                 elif obj == self.childmessagepipe:
-                    fd,remoteaddr,packet = self.childmessagepipe.recv()
-                    log.debug("message comming from main process, fd:%s remote:%r \"%s...\"", fd, remoteaddr, repr(packet[:10])[2:-1])
+                    fd, remoteaddr, packet = self.childmessagepipe.recv()
+                    log.debug("message comming from main process, fd:%s remote:%r \"%s...\"", fd, remoteaddr,
+                              repr(packet[:10])[2:-1])
                     send = None
                     for sock in udpsockets:
-                        if sock.fileno()==fd:
+                        if sock.fileno() == fd:
                             send = functools.partial(sock.sendto, packet, remoteaddr)
                             break
                     if not send:
                         for sock in servicesockets:
-                            if sock.fileno()==fd:
+                            if sock.fileno() == fd:
                                 send = functools.partial(sock.sendall, packet)
                                 break
                     if send:
@@ -496,14 +510,14 @@ class Transport(multiprocessing.Process):
 
                 # Incomming packet --> decode and send to main process
                 elif obj in udpsockets:
-                    buf,remoteaddr = obj.recvfrom(65536)
+                    buf, remoteaddr = obj.recvfrom(65536)
                     log.debug("incomming UDP packet: %s %s", remoteaddr, buf[:10])
                     decodeinfo = Message.SIPMessage.predecode(buf)
                     # Discard inconsistent messages
                     if decodeinfo.status != 'OK':
                         continue
 
-                    self.childmessagepipe.send((obj.fileno(),'UDP',remoteaddr,obj.getsockname()[1],decodeinfo))
+                    self.childmessagepipe.send((obj.fileno(), 'UDP', remoteaddr, obj.getsockname()[1], decodeinfo))
 
                 elif obj in servicesockets:
                     buf = obj.recv(65536)
@@ -512,7 +526,7 @@ class Transport(multiprocessing.Process):
                         protocol = 'TLS'
                     log.debug("incomming %s packet", protocol)
                     while True:
-                        decodeinfo = Message.SIPMessage.predecode(buf)
+                        decodeinfo = message.SIPMessage.predecode(buf)
 
                         # Erroneous messages or messages missing a Content-Length make the stream desynchronized
                         if decodeinfo.status == 'ERROR' or (decodeinfo.status == 'OK' and not decodeinfo.framing):
@@ -522,7 +536,8 @@ class Transport(multiprocessing.Process):
                         # Flush buffer if filled with CRLF
                         if decodeinfo.status == 'EMPTY':
                             if buf:
-                                log.info("%s:%s <-%s-- %s:%d (fd=%d)\n%s", self.localip, obj.getsockname()[1], protocol, *remoteaddr, obj.fileno(), bytes(buf))
+                                log.info("%s:%s <-%s-- %s:%d (fd=%d)\n%s", self.localip, obj.getsockname()[1], protocol,
+                                         *remoteaddr, obj.fileno(), bytes(buf))
                                 del buf[:]
                             break
 
@@ -530,7 +545,8 @@ class Transport(multiprocessing.Process):
                         if decodeinfo.status != 'OK':
                             break
 
-                        self.childmessagepipe.send((obj.fileno(),protocol,obj.getpeername(),obj.getsockname()[1],decodeinfo))
+                        self.childmessagepipe.send(
+                            (obj.fileno(), protocol, obj.getpeername(), obj.getsockname()[1], decodeinfo))
                         del buf[:decodeinfo.iend]
 
             # cleanup servicesockets
@@ -546,13 +562,14 @@ class Transport(multiprocessing.Process):
                     log.info("%s: service socket fd=%s closed after EOF", self, sock.fileno())
                     servicesockets.remove(sock)
 
+
 class ServiceSocketMixin:
     @staticmethod
     def wrap(sock, tls):
         if tls is None:
             return ServiceSocket(sock)
 
-        cafile,hostname = tls
+        cafile, hostname = tls
         try:
             sslcontext = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=cafile)
             if cafile is None:
@@ -588,9 +605,10 @@ class ServiceSocketMixin:
         self.touchtime = time.monotonic()
         return super().sendall(*args, **kwargs)
 
+
 class ServiceSocket(ServiceSocketMixin, socket.socket):
     def __init__(self, sock):
-        assert(sock.type & socket.SOCK_STREAM)
+        assert (sock.type & socket.SOCK_STREAM)
         socket.socket.__init__(
             self,
             family=sock.family,
@@ -602,9 +620,10 @@ class ServiceSocket(ServiceSocketMixin, socket.socket):
         self.settimeout(sock.gettimeout())
         sock.detach()
 
+
 class ServiceSSLSocket(ServiceSocketMixin, ssl.SSLSocket):
     def __init__(self, sock):
-        assert(sock.type & socket.SOCK_STREAM)
+        assert (sock.type & socket.SOCK_STREAM)
         ssl.SSLSocket.__init__(
             self,
             sock=sock,
@@ -618,10 +637,11 @@ class ServiceSSLSocket(ServiceSocketMixin, ssl.SSLSocket):
         self.settimeout(sock.gettimeout())
         sock.detach()
 
+
 class ErrorDispatcher(threading.Thread):
     def __init__(self):
-        self.pipeout1,icmppipe = multiprocessing.Pipe(duplex=False)
-        self.pipeout2,self.pipein = multiprocessing.Pipe(duplex=False)
+        self.pipeout1, icmppipe = multiprocessing.Pipe(duplex=False)
+        self.pipeout2, self.pipein = multiprocessing.Pipe(duplex=False)
         self.icmp = ICMPProcess(icmppipe)
         super().__init__(daemon=True)
         self.start()
@@ -642,6 +662,8 @@ class ErrorDispatcher(threading.Thread):
                             if transport.errorcb:
                                 transport.errorcb(message, err)
                             break
+
+
 def dispatcherror(*args):
     global errordispatcher
     errordispatcher.pipein.send(args)
@@ -663,14 +685,14 @@ class ICMPProcess(multiprocessing.Process):
 
         while True:
             # decode ICMP packet seen on socket
-            packet,addr = rawsock.recvfrom(65536)
-            if len(packet) < 20+8+20+8: # IP | ICMP | IP | ...
-                continue # too short
+            packet, addr = rawsock.recvfrom(65536)
+            if len(packet) < 20 + 8 + 20 + 8:  # IP | ICMP | IP | ...
+                continue  # too short
             ipproto, = struct.unpack_from('B', packet, 9)
-            if ipproto != 1: # ICMP
-                continue # not ICMP
+            if ipproto != 1:  # ICMP
+                continue  # not ICMP
             icmptype, icmpcode = struct.unpack_from('2b', packet, 20)
-            if icmptype == 3: # Destination Unreachable
+            if icmptype == 3:  # Destination Unreachable
                 if icmpcode == 0:
                     err = "Network Unreachable"
                 elif icmpcode == 1:
@@ -680,39 +702,40 @@ class ICMPProcess(multiprocessing.Process):
                 elif icmpcode == 3:
                     err = "Port Unreachable"
                 else:
-                    continue # ignored code
+                    continue  # ignored code
             elif icmptype == 12:
                 err = "Parameter Problem"
             else:
-                continue # ignored type
-            ip2proto, = struct.unpack_from('B', packet, 20+8+9)
-            if ip2proto == 6: # TCP
-                payload = packet[20+8+20+20:]
-            elif ip2proto == 17: # UDP
-                payload = packet[20+8+20+8:]
+                continue  # ignored type
+            ip2proto, = struct.unpack_from('B', packet, 20 + 8 + 9)
+            if ip2proto == 6:  # TCP
+                payload = packet[20 + 8 + 20 + 20:]
+            elif ip2proto == 17:  # UDP
+                payload = packet[20 + 8 + 20 + 8:]
             else:
-                continue # ignored transport
+                continue  # ignored transport
 
             # send ICMP payload to ErrorDispatcher
-            srcip = '.'.join((str(b) for b in struct.unpack_from('4B', packet, 20+8+12)))
-            dstip = '.'.join((str(b) for b in struct.unpack_from('4B', packet, 20+8+16)))
-            dstport, = struct.unpack_from('!H', packet, 20+8+20+2)
-            srcport, = struct.unpack_from('!H', packet, 20+8+20+0)
+            srcip = '.'.join((str(b) for b in struct.unpack_from('4B', packet, 20 + 8 + 12)))
+            dstip = '.'.join((str(b) for b in struct.unpack_from('4B', packet, 20 + 8 + 16)))
+            dstport, = struct.unpack_from('!H', packet, 20 + 8 + 20 + 2)
+            srcport, = struct.unpack_from('!H', packet, 20 + 8 + 20 + 0)
             self.pipe.send((srcip, srcport, dstip, dstport, err, payload))
+
 
 errordispatcher = ErrorDispatcher()
 
-
 if __name__ == '__main__':
     import snl
+
     snl.loggers['Transport'].setLevel('INFO')
 
     t = snl.Transport(interface='eno1', port=5061, protocol='tcp')
     t.send(snl.REGISTER('sip:osk.nokims.eu',
-                            'From:sip:+33900821220@osk.nokims.eu',
-                            'To:sip:+33900821220@osk.nokims.eu'),
-           ('194.2.137.40',5060)
-    )
+                        'From:sip:+33900821220@osk.nokims.eu',
+                        'To:sip:+33900821220@osk.nokims.eu'),
+           ('194.2.137.40', 5060)
+           )
     t.send(snl.REGISTER('sip:osk.nkims.eu'), '127.0.0.1')
     t.recv(3)
     t.recv(3)

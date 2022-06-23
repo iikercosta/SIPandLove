@@ -8,16 +8,17 @@ import threading
 import weakref
 import atexit
 import ipaddress
+
 log = logging.getLogger('UA')
 
-from . import SIPBNF
-from . import Message
-from . import Header
-from . import Transaction
+from . import sip_bnf
+from . import message
+from . import header
+from . import transaction
 from . import Media
-from . import Timer
-from . import Dialog
-from . import Security
+from . import timer
+from . import dialog
+from . import security
 
 try:
     import card.USIM as USIM
@@ -25,7 +26,8 @@ except Exception as e:
     log.warning("cannot import card (%s). SIM-AKA authentication is not possible", e)
     USIM = None
 
-class UAbase(Transaction.TransactionManager):
+
+class UAbase(transaction.TransactionManager):
     def __init__(self, ua={}, identity={}, transport={}, transaction={}):
         super().__init__(transport, **transaction)
 
@@ -38,7 +40,7 @@ class UAbase(Transaction.TransactionManager):
                     self.proxy = (prox[0], int(prox[1]))
                 else:
                     self.proxy = (proxy, None)
-            elif isinstance(proxy, (list,tuple)):
+            elif isinstance(proxy, (list, tuple)):
                 assert len(proxy) == 2
                 self.proxy = tuple(proxy)
             elif isinstance(proxy, ipaddress.IPv4Address):
@@ -48,7 +50,7 @@ class UAbase(Transaction.TransactionManager):
         if ua:
             raise ValueError('unexpected UA parameters {}'.format(ua))
 
-        identity =dict(identity)
+        identity = dict(identity)
         self.identity = dict(usim=None)
         self.addressofrecord = self.domain = None
         iccid = identity.pop('iccid', None)
@@ -80,8 +82,9 @@ class UAbase(Transaction.TransactionManager):
             self.addressofrecord = 'sip:{}'.format(username)
 
         self.addressofrecord = identity.pop('aor', self.addressofrecord)
-        self.contacturi = SIPBNF.URI(self.addressofrecord) if self.addressofrecord else None
-        self.domain = identity.pop('domain', self.domain or 'sip:{}'.format(self.contacturi.host) if self.contacturi else None)
+        self.contacturi = sip_bnf.URI(self.addressofrecord) if self.addressofrecord else None
+        self.domain = identity.pop('domain',
+                                   self.domain or 'sip:{}'.format(self.contacturi.host) if self.contacturi else None)
 
         for key in ('realm', 'username', 'uri', 'K', 'OP', 'password'):
             self.identity[key] = identity.pop(key, self.identity.get(key))
@@ -99,7 +102,8 @@ class UAbase(Transaction.TransactionManager):
         if self.contacturi:
             self.contacturi.host = self.transport.localip
             self.contacturi.port = self.transport.localport
-#            self.contacturi.params['user'] = 'phone'
+
+    #            self.contacturi.params['user'] = 'phone'
 
     def __str__(self):
         return str(self.contacturi)
@@ -131,12 +135,12 @@ class UAbase(Transaction.TransactionManager):
             if event is None:
                 return
             result = UAbase.Result(event)
-            yield result,event
+            yield result, event
             if not result.provisional:
                 return
 
     def send(self, message):
-            self.transport.send(message, self.proxy)
+        self.transport.send(message, self.proxy)
 
     def options(self, *headers, body=None):
         log.info("%s querying for capabilities", self)
@@ -147,7 +151,7 @@ class UAbase(Transaction.TransactionManager):
             Header.Content_Type('application/sdp'),
             ifmissing=True
         )
-        for result,event in self.sendmessage(options):
+        for result, event in self.sendmessage(options):
             if result.success:
                 log.info("%s query ok", self)
                 return event
@@ -168,13 +172,17 @@ class UAbase(Transaction.TransactionManager):
             )
         return response
 
+
 tobeunregistered = weakref.WeakSet()
+
+
 @atexit.register
 def unregisterphones():
     global tobeunregistered
     for phone in tobeunregistered:
         if phone.registered:
             phone.register(0)
+
 
 class RegistrationManager:
     def __init__(self, registration={}, **kwargs):
@@ -184,7 +192,7 @@ class RegistrationManager:
         self.reregister = registration.pop('reregister', 0.5)
         if not isinstance(self.reregister, (int, float)):
             raise TypeError('expecting a number for reregister not {!r}'.format(self.reregister))
-        if self.reregister<0 or self.reregister>1:
+        if self.reregister < 0 or self.reregister > 1:
             raise ValueError('expecting a number in [0. - 1.] for reregister. got {}'.format(self.reregister))
         self.expires = registration.pop('expires', 3600)
         if not isinstance(self.expires, (int, float)):
@@ -210,7 +218,7 @@ class RegistrationManager:
         expires = expires if expires is not None else self.expires
         if not asynch:
             return self._register(expires, *headers)
-        threading.Thread(target=self._register, args=(expires,*headers), daemon=True).start()
+        threading.Thread(target=self._register, args=(expires, *headers), daemon=True).start()
 
     def _register(self, expires, *headers):
         Timer.unarm(self.regtimer)
@@ -232,7 +240,7 @@ class RegistrationManager:
             self.registermessage.addheaders(*headers, replace=True)
             self.registermessage.seq += 1
         self.registermessage.addheaders(Header.Expires(delta=expires), replace=True)
-        for result,event in self.sendmessage(self.registermessage):
+        for result, event in self.sendmessage(self.registermessage):
             if result.success:
                 gotexpires = 0
                 expiresheader = event.header('Expires')
@@ -245,7 +253,8 @@ class RegistrationManager:
                     self.registered = True
                     log.info("%s registered for %ds", self, gotexpires)
                     if self.reregister:
-                        self.regtimer = Timer.arm(gotexpires*self.reregister, self.register, expires, *headers, asynch=True)
+                        self.regtimer = Timer.arm(gotexpires * self.reregister, self.register, expires, *headers,
+                                                  asynch=True)
                     if 'reg-event' in self.extensions:
                         self.subscribe('reg', expires=expires)
                     self.associateduris = [h.address for h in event.headers('P-Associated-URI')]
@@ -288,40 +297,45 @@ class AuthenticationManager:
             username = self.identity.get('username')
             uri = self.identity.get('uri')
             realm = self.identity.get('realm')
-            self.saheaders.append(Header.Authorization(scheme='Digest', params=dict(username=username, uri=uri, realm=realm, nonce='', algorithm='AKAv1-MD5', response='')))
+            self.saheaders.append(Header.Authorization(scheme='Digest',
+                                                       params=dict(username=username, uri=uri, realm=realm, nonce='',
+                                                                   algorithm='AKAv1-MD5', response='')))
             self.sa = self.transport.prepareSA(self.proxy[0])
-#            val = []
+            #            val = []
             for alg in Security.IPSEC_ALGS:
                 for ealg in Security.IPSEC_EALGS:
-                    self.saheaders.append(Header.Security_Client(mechanism='ipsec-3gpp', params=dict(**self.sa, alg=alg, ealg=ealg, prot='esp', mod='trans')))
-#                    h=Header.Security_Client(mechanism='ipsec-3gpp', params=dict(**self.sa, alg=alg, ealg=ealg, prot='esp', mod='trans'))
-#                    val.append(str(h).split(':',1)[1].strip())
-#            self.saheaders.append(Header.Header(name='Security-Client', value=','.join(val)))
+                    self.saheaders.append(Header.Security_Client(mechanism='ipsec-3gpp',
+                                                                 params=dict(**self.sa, alg=alg, ealg=ealg, prot='esp',
+                                                                             mod='trans')))
+        #                    h=Header.Security_Client(mechanism='ipsec-3gpp', params=dict(**self.sa, alg=alg, ealg=ealg, prot='esp', mod='trans'))
+        #                    val.append(str(h).split(':',1)[1].strip())
+        #            self.saheaders.append(Header.Header(name='Security-Client', value=','.join(val)))
         message.addheaders(*self.saheaders, replace=True)
-        for result,event in super().sendmessage(message):
+        for result, event in super().sendmessage(message):
             if result.error and event.code in (401, 407):
                 if needsecurity:
                     bestq = -1
                     for sec in event.headers('security-server'):
-                        q = sec.params.get('q',0.)
-                        prot = sec.params.get('prot','esp')
-                        mod = sec.params.get('mod','trans')
+                        q = sec.params.get('q', 0.)
+                        prot = sec.params.get('prot', 'esp')
+                        mod = sec.params.get('mod', 'trans')
                         try:
-                            params = {k:sec.params[k] for k in ('spic', 'spis', 'portc', 'ports', 'alg')}
+                            params = {k: sec.params[k] for k in ('spic', 'spis', 'portc', 'ports', 'alg')}
                         except:
-                            continue # missing mandatory parameter
+                            continue  # missing mandatory parameter
                         params['ealg'] = sec.params.get('ealg', 'null')
-                        if sec.mechanism=='ipsec-3gpp' and prot=='esp' and mod=='trans' and params['ealg'] in Security.IPSEC_EALGS and params['alg'] in Security.IPSEC_ALGS and q>bestq:
+                        if sec.mechanism == 'ipsec-3gpp' and prot == 'esp' and mod == 'trans' and params[
+                            'ealg'] in Security.IPSEC_EALGS and params['alg'] in Security.IPSEC_ALGS and q > bestq:
                             bestq = q
                             securityserverparams = params
                     if bestq == -1:
                         log.warning("%s no matching algorithm found for SA", self)
-                        yield result,event
+                        yield result, event
                 log.info("%s %d retrying %s with authentication", self, event.code, message.METHOD)
                 auth = message.authenticationheader(event, **self.identity)
                 if auth.header is None:
                     error = Exception(auth.error)
-                    yield UAbase.Result(error),error
+                    yield UAbase.Result(error), error
                     return
                 if needsecurity:
                     self.transport.establishSA(**securityserverparams, **auth.extra)
@@ -338,11 +352,11 @@ class AuthenticationManager:
                 yield from super().sendmessage(message)
                 return
             else:
-                yield result,event
+                yield result, event
 
     def _register(self, expires=3600, *headers):
         registered = super()._register(expires, *headers)
-        if expires==0 and self.sa:
+        if expires == 0 and self.sa:
             self.transport.terminateSA()
             self.sa = None
             if self.savedproxy:
@@ -351,6 +365,7 @@ class AuthenticationManager:
             self.saheaders = []
             self.contacturi.port = self.transport.localport
         return registered
+
 
 class SessionManager:
     def __init__(self, session={}, **kwargs):
@@ -366,9 +381,10 @@ class SessionManager:
     def addsession(self, session, media):
         with self.lock:
             self.sessions.append((session, media))
+
     def getsession(self, key, pop=False):
         with self.lock:
-            for i,(session,media) in enumerate(self.sessions):
+            for i, (session, media) in enumerate(self.sessions):
                 if isinstance(key, str) and session.ident == key:
                     break
                 if isinstance(key, Dialog.Session) and session == key:
@@ -379,7 +395,8 @@ class SessionManager:
                 raise KeyError("no such session {!r}".format(key))
             if pop:
                 del self.sessions[i]
-            return session,media
+            return session, media
+
     def popsession(self, key):
         return self.getsession(key, pop=True)
 
@@ -403,7 +420,7 @@ class SessionManager:
 
     def _invite(self, invite):
         media = invite.media
-        for result,event in self.sendmessage(invite):
+        for result, event in self.sendmessage(invite):
             if result.success:
                 log.info("%s invitation ok", self)
                 session = Dialog.Session(invite, event, uac=True)
@@ -460,14 +477,14 @@ class SessionManager:
             return response
 
         try:
-            session,media = self.getsession(ident)
+            session, media = self.getsession(ident)
         except:
             log.info("%s invalid invitation by %s", self, invite.fromaddr)
             return invite.response(481)
 
     def bye(self, key):
         try:
-            session,media = self.popsession(key)
+            session, media = self.popsession(key)
         except Exception as e:
             log.warning(e)
             return
@@ -480,7 +497,7 @@ class SessionManager:
                           Header.To(session.remoteuri, params=dict(tag=session.remotetag)),
                           Header.CSeq(seq=session.localseq, method='BYE'))
         media.stop()
-        for result,event in self.sendmessage(bye):
+        for result, event in self.sendmessage(bye):
             if result.success:
                 log.info("%s closing ok", self)
                 return
@@ -499,7 +516,7 @@ class SessionManager:
     def BYE_handler(self, bye):
         ident = Dialog.UASid(bye)
         try:
-            session,media = self.popsession(ident)
+            session, media = self.popsession(ident)
         except:
             log.info("%s bying unknown session from %s", self, bye.fromaddr)
             return bye.response(481)
@@ -512,7 +529,7 @@ class SessionManager:
 class CancelationManager:
     def cancel(self, invite):
         log.info("%s canceling %s", self, invite.branch)
-        for result,event in self.sendmessage(invite.cancel()):
+        for result, event in self.sendmessage(invite.cancel()):
             if result.success:
                 log.info("%s cancel ok", self)
                 return
@@ -540,6 +557,7 @@ class CancelationManager:
 
         log.info("%s invalid cancelation from %s", self, cancel.fromaddr)
         return cancel.response(481)
+
 
 class NotificationManager:
     class Subscription:
@@ -574,7 +592,7 @@ class NotificationManager:
         subscription.subscribe.addheaders(Header.Expires(delta=expires), replace=True)
 
         log.info("%s subscribing to %r", self, event)
-        for result,event in self.sendmessage(subscription.subscribe):
+        for result, event in self.sendmessage(subscription.subscribe):
             if result.success:
                 log.info("%s subscription ok", self)
                 return
@@ -595,7 +613,10 @@ class NotificationManager:
     def NOTIFY_handler(self, notify):
         return notify.response(200)
 
+
 classcache = {}
+
+
 def SIPPhoneClass(*extensions):
     for extension in set(extensions):
         if extension == 'sec-agree':
@@ -607,13 +628,17 @@ def SIPPhoneClass(*extensions):
     ext = frozenset(extensions)
 
     if ext not in classcache:
-        class SIPPhone(NotificationManager, CancelationManager, SessionManager, AuthenticationManager, RegistrationManager, UAbase):
+        class SIPPhone(NotificationManager, CancelationManager, SessionManager, AuthenticationManager,
+                       RegistrationManager, UAbase):
             extensions = ext
+
         classcache[ext] = SIPPhone
     return classcache[ext]
 
+
 if __name__ == '__main__':
     import snl
+
     snl.loggers['UA'].setLevel('INFO')
 
     config = dict(

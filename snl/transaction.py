@@ -4,21 +4,25 @@
 import sys
 import threading
 import logging
+
 log = logging.getLogger('Transaction')
 
-from . import Message
-from . import Timer
+from . import message
+from . import timer
 from . import Transport
-from . import Dialog
-from . import Tags
+from . import dialog
+from . import tags
+
 
 class TransactionManager(threading.Thread):
     modifybeforesend = None
     modifyafterreceive = None
+
     def __init__(self, transport, T1=None, T2=None, T4=None):
         threading.Thread.__init__(self, daemon=True)
         transportclass = transport.pop('klass', Transport)
-        self.transport = transportclass(**transport, errorcb=self.transporterror, sendcb=self.modifybeforesend, recvcb=self.modifyafterreceive)
+        self.transport = transportclass(**transport, errorcb=self.transporterror, sendcb=self.modifybeforesend,
+                                        recvcb=self.modifyafterreceive)
         self.T1 = T1 or .5
         self.T2 = T2 or 4.
         self.T4 = T4 or 5.
@@ -64,7 +68,7 @@ class TransactionManager(threading.Thread):
         return transaction
 
     def newclienttransaction(self, request, addr):
-        if isinstance(request, Message.INVITE):
+        if isinstance(request, message.INVITE):
             transactionclass = INVITEclientTransaction
         else:
             transactionclass = NonINVITEclientTransaction
@@ -92,7 +96,7 @@ class TransactionManager(threading.Thread):
     def run(self):
         while self.running:
             message = self.transport.recv()
-            if message is None: # happens when transport process is terminated
+            if message is None:  # happens when transport process is terminated
                 break
             transaction = self.transactionmatching(message)
             if transaction:
@@ -104,15 +108,16 @@ class TransactionManager(threading.Thread):
                     except:
                         pass
                 if isinstance(transaction, INVITEclientTransaction) \
-                   and transaction.lastresponse \
-                   and transaction.lastresponse.familycode == 2:
+                        and transaction.lastresponse \
+                        and transaction.lastresponse.familycode == 2:
                     ack = transaction.request.ack(message)
                     addr = transaction.addr
-                    newtransaction = ACKclientTransaction(ack, transaction.id, self.transport, addr, T1=self.T1, T2=self.T2, T4=self.T4)
+                    newtransaction = ACKclientTransaction(ack, transaction.id, self.transport, addr, T1=self.T1,
+                                                          T2=self.T2, T4=self.T4)
                     with self.lock:
                         self.transactions.append(newtransaction)
             else:
-                if isinstance(message, Message.SIPResponse):
+                if isinstance(message, message.SIPResponse):
                     pass
                 elif message.METHOD != 'ACK':
                     transaction = self.newservertransaction(message)
@@ -133,13 +138,14 @@ class TransactionManager(threading.Thread):
             with self.lock:
                 self.transactions = [transaction for transaction in self.transactions if not transaction.terminated]
 
+
 class ACKWaiter():
     # Class responsible for 200-OK (on INVITE) retransmission until ACK is received
     def __init__(self, transport, T1, T2):
         self.transport = transport
         self.T1 = T1
         self.initialcounter = 0
-        while 2**(self.initialcounter+1) - 1 < T2/self.T1:
+        while 2 ** (self.initialcounter + 1) - 1 < T2 / self.T1:
             self.initialcounter += 1
         self.responses = {}
         self.lock = threading.Lock()
@@ -197,6 +203,7 @@ class Handler(threading.Thread):
         self.transaction = transaction
         self.request = request
         self.start()
+
     def run(self):
         # handlers can return:
         #  a response alone or
@@ -215,22 +222,27 @@ class Handler(threading.Thread):
                     ifmissing=True
                 )
             self.transaction.eventmessage(response)
-            if isinstance(self.request, Message.INVITE) and response.familycode == 2:
+            if isinstance(self.request, message.INVITE) and response.familycode == 2:
                 self.transactionmanager.ackwaiter.new(response)
         for func in postfuncs:
             func()
 
+
 class Timeout(Exception):
     def __init__(self, timer):
         self.timer = timer
+
     def __str__(self):
         return "Timer {} fired".format(self.timer)
+
 
 class TransportError(Exception):
     def __init__(self, error):
         self.error = error
+
     def __str__(self):
         return "Transport error: {}".format(self.error)
+
 
 class Transaction:
     def __init__(self, request, transport, addr=None, *, T1, T2, T4):
@@ -254,6 +266,7 @@ class Transaction:
 
     def _getterminated(self):
         return self.state == 'Terminated'
+
     def _setterminated(self, value):
         if not value:
             raise ValueError("cannot set 'terminated' to other value than True")
@@ -261,6 +274,7 @@ class Transaction:
             state = self.state
             self.state = 'Terminated'
             self.checkstate(state)
+
     terminated = property(_getterminated, _setterminated)
 
     def wait(self):
@@ -275,7 +289,7 @@ class Transaction:
     def eventmessage(self, message):
         with self.lock:
             response = request = None
-            if isinstance(message, Message.SIPResponse):
+            if isinstance(message, message.SIPResponse):
                 response = message
                 eventcb = getattr(self, '{}_{}xx'.format(self.state, response.familycode), None)
             else:
@@ -337,10 +351,11 @@ class Transaction:
                 self.events.append(None)
                 self.eventsemaphore.release()
 
+
 class ClientTransaction(Transaction):
     @staticmethod
     def identifier(message):
-        if isinstance(message, Message.SIPRequest):
+        if isinstance(message, message.SIPRequest):
             method = message.METHOD
         else:
             cseq = message.header('CSeq')
@@ -349,14 +364,16 @@ class ClientTransaction(Transaction):
             else:
                 method = None
         return (message.branch, method)
+
     def __init__(self, request, *args, **kwargs):
         request.enforceheaders()
         super().__init__(request, *args, **kwargs)
 
+
 class ServerTransaction(Transaction):
     @staticmethod
     def identifier(request):
-        if isinstance(request, Message.SIPResponse):
+        if isinstance(request, message.SIPResponse):
             return
         via = request.header('Via')
         if via:
@@ -366,11 +383,12 @@ class ServerTransaction(Transaction):
                 sentby = via.host
         else:
             sentby = None
-        if isinstance(request, Message.ACK):
+        if isinstance(request, message.ACK):
             method = 'INVITE'
         else:
             method = request.METHOD
         return (request.branch, sentby, method)
+
 
 #                               |INVITE from TU
 #             Timer A fires     |INVITE sent
@@ -384,7 +402,7 @@ class ServerTransaction(Transaction):
 #                            |  |1xx                  |
 #    300-699 +---------------+  |1xx to TU            |
 #   ACK sent |                  |                     |
-#resp. to TU |  1xx             V                     |
+# resp. to TU |  1xx             V                     |
 #            |  1xx to TU  -----------+               |
 #            |  +---------|           |               |
 #            |  |         |Proceeding |-------------->|
@@ -414,11 +432,12 @@ class ServerTransaction(Transaction):
 #                 Figure 5: INVITE client transaction
 class INVITEclientTransaction(ClientTransaction):
     state = 'Calling'
+
     def init(self):
         self.transport.send(self.request, self.addr)
         self.Aduration = self.T1
         self.armtimer('A', self.Aduration)
-        self.armtimer('B', 64*self.T1)
+        self.armtimer('B', 64 * self.T1)
 
     def Calling_TimerA(self):
         self.transport.send(self.request, self.addr)
@@ -428,6 +447,7 @@ class INVITEclientTransaction(ClientTransaction):
     def Calling_TimerB(self):
         self.state = 'Terminated'
         return True
+
     Calling_Error = Calling_TimerB
 
     def Calling_1xx(self):
@@ -443,6 +463,7 @@ class INVITEclientTransaction(ClientTransaction):
         self.state = 'Completed'
         self.armtimer('D', 32)
         return True
+
     Calling_3xx = Calling_4xx = Calling_5xx = Calling_6xx = Calling_3456
 
     def Proceeding_1xx(self):
@@ -457,10 +478,12 @@ class INVITEclientTransaction(ClientTransaction):
         self.armtimer('D', 32)
         self.state = 'Completed'
         return True
+
     Proceeding_3xx = Proceeding_4xx = Proceeding_5xx = Proceeding_6xx = Proceeding_3456
 
     def Completed_3456(self):
         self.transport.send(self.request.ack(self.lastresponse), self.addr)
+
     Completed_3xx = Completed_4xx = Completed_5xx = Completed_6xx = Completed_3456
 
     def Completed_TimerD(self):
@@ -469,6 +492,7 @@ class INVITEclientTransaction(ClientTransaction):
     def Completed_Error(self):
         self.state = 'Terminated'
         return True
+
 
 #                               |ACK from TU
 #                               |ACK sent
@@ -488,17 +512,21 @@ class ACKclientTransaction(ClientTransaction):
     def __init__(self, request, ident, *args, **kwargs):
         super().__init__(request, *args, **kwargs)
         self.id = ident
+
     state = 'Proceeding'
+
     def init(self):
         self.transport.send(self.request, self.addr)
-        self.armtimer('B', 64*self.T1)
+        self.armtimer('B', 64 * self.T1)
 
     def Proceeding_TimerB(self):
         self.state = 'Terminated'
+
     Proceeding_Error = Proceeding_TimerB
 
     def Proceeding_2xx(self):
         self.transport.send(self.request, self.addr)
+
 
 #                                   |Request from TU
 #                                   |send request
@@ -544,32 +572,35 @@ class ACKclientTransaction(ClientTransaction):
 #                 Figure 6: non-INVITE client transaction
 class NonINVITEclientTransaction(ClientTransaction):
     state = 'Trying'
+
     def init(self):
         self.transport.send(self.request, self.addr)
         self.Eduration = self.T1
         self.armtimer('E', self.Eduration)
-        self.armtimer('F', 64*self.T1)
+        self.armtimer('F', 64 * self.T1)
 
     def Trying_TimerE(self):
         self.transport.send(self.request, self.addr)
-        self.Eduration = min(2*self.Eduration, self.T2)
+        self.Eduration = min(2 * self.Eduration, self.T2)
         self.armtimer('E', self.Eduration)
 
     def Trying_TimerF(self):
         self.state = 'Terminated'
         return True
+
     Trying_Error = Trying_TimerF
 
     def Trying_1xx(self):
         self.state = 'Proceeding'
         self.armtimer('E', self.T2)
-        self.armtimer('F', 64*self.T1)
+        self.armtimer('F', 64 * self.T1)
         return True
 
     def Trying_23456(self):
         self.state = 'Completed'
         self.armtimer('K', self.T4)
         return True
+
     Trying_2xx = Trying_3xx = Trying_4xx = Trying_5xx = Trying_6xx = Trying_23456
 
     def Proceeding_TimerE(self):
@@ -579,6 +610,7 @@ class NonINVITEclientTransaction(ClientTransaction):
     def Proceeding_TimerF(self):
         self.state = 'Terminated'
         return True
+
     Proceeding_Error = Proceeding_TimerF
 
     def Proceeding_1xx(self):
@@ -588,10 +620,12 @@ class NonINVITEclientTransaction(ClientTransaction):
         self.state = 'Completed'
         self.armtimer('K', self.T4)
         return True
+
     Proceeding_2xx = Proceeding_3xx = Proceeding_4xx = Proceeding_5xx = Proceeding_6xx = Proceeding_23456
 
     def Completed_TimerK(self):
         self.state = 'Terminated'
+
 
 #                               |INVITE
 #                               |pass INV to TU
@@ -638,6 +672,7 @@ class NonINVITEclientTransaction(ClientTransaction):
 #              Figure 7: INVITE server transaction
 class INVITEserverTransaction(ServerTransaction):
     state = 'Proceeding'
+
     def init(self):
         self.armtimer('TryingDelay', 0.1)
 
@@ -663,8 +698,9 @@ class INVITEserverTransaction(ServerTransaction):
         self.state = 'Completed'
         self.Gduration = self.T1
         self.armtimer('G', self.Gduration)
-        self.armtimer('H', 64*self.T1)
+        self.armtimer('H', 64 * self.T1)
         self.transport.send(self.lastresponse)
+
     Proceeding_3xx = Proceeding_4xx = Proceeding_5xx = Proceeding_6xx = Proceeding_3456
 
     def Proceeding_Error(self):
@@ -678,12 +714,13 @@ class INVITEserverTransaction(ServerTransaction):
 
     def Completed_TimerG(self):
         self.transport.send(self.lastresponse)
-        self.Gduration = min(2*self.Gduration, self.T2)
+        self.Gduration = min(2 * self.Gduration, self.T2)
         self.armtimer('G', self.Gduration)
 
     def Completed_TimerH(self):
         self.state = 'Terminated'
         return True
+
     Completed_Error = Completed_TimerH
 
     def Completed_Request(self):
@@ -695,6 +732,7 @@ class INVITEserverTransaction(ServerTransaction):
 
     def Confirmed_TimerI(self):
         self.state = 'Terminated'
+
 
 #                                  |Request received
 #                                  |pass to TU
@@ -740,6 +778,7 @@ class INVITEserverTransaction(ServerTransaction):
 #                Figure 8: non-INVITE server transaction
 class NonINVITEserverTransaction(ServerTransaction):
     state = 'Trying'
+
     def init(self):
         pass
 
@@ -749,8 +788,9 @@ class NonINVITEserverTransaction(ServerTransaction):
 
     def Trying_23456(self):
         self.state = "Completed"
-        self.armtimer('J', 64*self.T1)
+        self.armtimer('J', 64 * self.T1)
         self.transport.send(self.lastresponse)
+
     Trying_2xx = Trying_3xx = Trying_4xx = Trying_5xx = Trying_6xx = Trying_23456
 
     def Proceeding_Request(self):
@@ -780,18 +820,18 @@ class NonINVITEserverTransaction(ServerTransaction):
 if __name__ == '__main__':
     import time
     import snl
+
     snl.loggers['Transaction'].setLevel('INFO')
 
     tm = TransactionManager('eno1', localport=5061)
     req1 = snl.REGISTER('sip:osk.nokims.eu',
-                            'From:sip:+33900821220@osk.nokims.eu',
-                            'To:sip:+33900821220@osk.nokims.eu')
+                        'From:sip:+33900821220@osk.nokims.eu',
+                        'To:sip:+33900821220@osk.nokims.eu')
     req2 = snl.REGISTER('sip:osk.nokims.eu',
-                            'From:sip:+33900821220@osk.nokims.eu',
-                            'To:sip:+33900821220@osk.nokims.eu')
+                        'From:sip:+33900821220@osk.nokims.eu',
+                        'To:sip:+33900821220@osk.nokims.eu')
     transaction1 = tm.newclienttransaction(req1, '194.2.137.40')
     transaction2 = tm.newclienttransaction(req2, '194.2.137.40')
     print(transaction1.wait())
     print(transaction2.wait())
     time.sleep(5)
-    

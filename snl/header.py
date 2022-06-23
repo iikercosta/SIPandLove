@@ -6,8 +6,8 @@ import logging
 import itertools
 log = logging.getLogger('Header')
 
-from . import SIPBNF
-from . import Utils
+from . import sip_bnf
+from . import utils
 
 
    
@@ -118,7 +118,7 @@ class Headers:
 #   -_parse
 #   -_multiple
 #   -_display
-#  to each Header subclass based on the definition in SIPBNF.py
+#  to each Header subclass based on the definition in sip_bnf.py
 #
 # And collect all headers in dict Header.SIPheaderclasses
 #
@@ -135,8 +135,8 @@ class Headers:
 class HeaderMeta(type):
     def __new__(cls, name, bases, dikt):
         if name != 'Header':
-            dikt['_args'] = getattr(SIPBNF, name + 'Args')
-            dikt['_parse'] = staticmethod(getattr(SIPBNF, name + 'Parse'))
+            dikt['_args'] = getattr(sip_bnf, name + 'Args')
+            dikt['_parse'] = staticmethod(getattr(sip_bnf, name + 'Parse'))
             dikt['_display'] = getattr(SIPBNF, name + 'Display')
             dikt['_multiple'] = getattr(SIPBNF, name + 'Multiple', False)
             dikt['_name'] = name.replace('_', '-')
@@ -308,7 +308,7 @@ class Call_ID(Header):
 
 class CFT: # common constructor to Contact From To
     def __init__(self, address, display=None, params={}, name=None):
-        if not isinstance(address, SIPBNF.URI):
+        if not isinstance(address, sip_bnf.URI):
             address = SIPBNF.URI(address)
         if not isinstance(params, Utils.ParameterDict):
             params = Utils.ParameterDict(params)

@@ -5,34 +5,44 @@ import string
 
 _branchtemplate = 'z9hG4bK_{}'
 
+
 def settags(*, prefix='SIPandLove', shortprefix='SNL', suffix=''):
-    global _prefix,_shortprefix,_suffix
+    global _prefix, _shortprefix, _suffix
     _prefix = prefix
     _shortprefix = shortprefix
     _suffix = suffix
+
+
 settags()
 
 vowels = 'aeiouyAEIOUY'
 consonants = ''.join(set(string.ascii_lowercase) - set(vowels))
-CV = tuple([c+v for c in consonants for v in vowels])
+CV = tuple([c + v for c in consonants for v in vowels])
+
 
 def randomstr():
-    return ''.join((_prefix, '_', random.choice(CV),random.choice(CV),random.choice(CV), _suffix))
+    return ''.join((_prefix, '_', random.choice(CV), random.choice(CV), random.choice(CV), _suffix))
+
 
 def branch(tag=None):
     return _branchtemplate.format(tag or randomstr())
 
+
 def fromto():
     return randomstr()
-    
+
+
 callnum = 0
+
+
 def callid():
     global callnum
     callnum += 1
     num = str(callnum)
     return '_'.join((_shortprefix, random.choice(colors), random.choice(vehicles), num))
 
-colors=(
+
+colors = (
     "accented",
     "achromatic",
     "ashen",
@@ -274,7 +284,7 @@ colors=(
     "yellow"
 )
 
-vehicles=(
+vehicles = (
     "aerial-tramway",
     "aircraft",
     "aircraft-carrier",

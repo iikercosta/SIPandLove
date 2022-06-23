@@ -14,8 +14,8 @@ import errno
 import ctypes.util
 import random
 import string
-_setns = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True).setns
 
+_setns = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True).setns
 
 ETH_P_ALL = 3
 ETH_P_IP = 0x800
@@ -25,7 +25,7 @@ PROTOCOLS = {}
 try:
     with open('/etc/protocols', 'r') as f:
         for line in f:
-            chunks = line.split('#',1)[0].strip().split()
+            chunks = line.split('#', 1)[0].strip().split()
             try:
                 name = chunks.pop(0)
                 proto = int(chunks.pop(0))
@@ -35,6 +35,7 @@ try:
 except:
     raise
 
+
 class MacAddr:
     def __init__(self, addr):
         try:
@@ -43,7 +44,7 @@ class MacAddr:
             elif isinstance(addr, int):
                 self.packed = addr.to_bytes(6, 'big')
             elif isinstance(addr, str):
-                ints = [int(x,16) for x in addr.split(':')]
+                ints = [int(x, 16) for x in addr.split(':')]
                 self.packed = [i for i in ints if i < 256]
             else:
                 raise Exception()
@@ -51,13 +52,16 @@ class MacAddr:
                 raise Exception()
         except:
             raise ValueError("{} does not appear to be a MAC address".format(addr)) from None
+
     def __str__(self):
         s = self.packed.hex()
-        return ':'.join([x+y for x,y in zip(s[::2],s[1::2])])
+        return ':'.join([x + y for x, y in zip(s[::2], s[1::2])])
+
     def __eq__(self, other):
         if isinstance(other, MacAddr):
             other = other.packed
         return self.packed == other
+
 
 class Ether(ctypes.BigEndianStructure):
     _fields_ = (
@@ -65,25 +69,35 @@ class Ether(ctypes.BigEndianStructure):
         ('_src', ctypes.c_byte * 6),
         ('_typ', ctypes.c_byte * 2),
     )
+
     def getdst(self):
         return MacAddr(bytes(self._dst))
+
     def setdst(self, value):
         if isinstance(value, MacAddr):
             value = value.packed
         self._dst = (ctypes.c_byte * 6)(*value)
+
     destination = property(getdst, setdst)
+
     def getsrc(self):
         return MacAddr(bytes(self._src))
+
     def setsrc(self, value):
         if isinstance(value, MacAddr):
             value = value.packed
         self._src = (ctypes.c_byte * 6)(*value)
+
     source = property(getsrc, setsrc)
+
     def gettyp(self):
         return int.from_bytes(bytes(self._typ), 'big')
+
     def settyp(self, value):
         self._typ = (ctypes.c_byte * 2)(*value.to_bytes(2, 'big'))
+
     type = property(gettyp, settyp)
+
 
 class IPv4(ctypes.BigEndianStructure):
     _fields_ = (
@@ -101,20 +115,27 @@ class IPv4(ctypes.BigEndianStructure):
         ('_src', ctypes.c_byte * 4),
         ('_dst', ctypes.c_byte * 4),
     )
+
     def getsrc(self):
         return ipaddress.IPv4Address(bytes(self._src))
+
     def setsrc(self, value):
         if isinstance(value, ipaddress.IPv4Address):
             value = value.packed
         self._src = (ctypes.c_byte * 4)(*value)
+
     src = property(getsrc, setsrc)
+
     def getdst(self):
         return ipaddress.IPv4Address(bytes(self._dst))
+
     def setdst(self, value):
         if isinstance(value, ipaddress.IPv4Address):
             value = value.packed
         self._dst = (ctypes.c_byte * 4)(*value)
+
     dst = property(getdst, setdst)
+
 
 class ARP(ctypes.BigEndianStructure):
     _fields_ = (
@@ -128,38 +149,52 @@ class ARP(ctypes.BigEndianStructure):
         ('_hwdst', ctypes.c_byte * 6),
         ('_pdst', ctypes.c_byte * 4),
     )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if hwtype != 0x0001 or ptype != ETH_P_IP or hwlen != 6 or plen != 4:
             raise Exception("Not an ETH/IPv4 ARP packet")
+
     def gethwsrc(self):
         return MacAddr(bytes(self._hwsrc))
+
     def sethwsrc(self, value):
         if isinstance(value, MacAddr):
             value = value.packed
         self._hwsrc = (ctypes.c_byte * 6)(*value)
+
     hwsrc = property(gethwsrc, sethwsrc)
+
     def gethwdst(self):
         return MacAddr(bytes(self._hwdst))
+
     def sethwdst(self, value):
         if isinstance(value, MacAddr):
             value = value.packed
         self._hwdst = (ctypes.c_byte * 6)(*value)
+
     hwdst = property(gethwdst, sethwdst)
+
     def getpsrc(self):
         return ipaddress.IPv4Address(bytes(self._psrc))
+
     def setpsrc(self, value):
         if isinstance(value, ipaddress.IPv4Address):
             value = value.packed
         self._psrc = (ctypes.c_byte * 4)(*value)
+
     psrc = property(getpsrc, setpsrc)
+
     def getpdst(self):
         return ipaddress.IPv4Address(bytes(self._pdst))
+
     def setpdst(self, value):
         if isinstance(value, ipaddress.IPv4Address):
             value = value.packed
         self._pdst = (ctypes.c_byte * 4)(*value)
+
     pdst = property(getpdst, setpdst)
+
 
 class UDP(ctypes.BigEndianStructure):
     _fields_ = (
@@ -169,12 +204,13 @@ class UDP(ctypes.BigEndianStructure):
         ('checksum', ctypes.c_uint16),
     )
 
+
 class TCP(ctypes.BigEndianStructure):
     _fields_ = (
         ('source', ctypes.c_uint16),
         ('destination', ctypes.c_uint16),
         ('sequence', ctypes.c_uint32),
-        ('ack', ctypes.c_uint32),        
+        ('ack', ctypes.c_uint32),
         ('offset', ctypes.c_uint8, 4),
         ('reserved', ctypes.c_byte, 3),
         ('ns', ctypes.c_byte, 1),
@@ -191,9 +227,12 @@ class TCP(ctypes.BigEndianStructure):
         ('pointer', ctypes.c_uint16),
     )
 
+
 vowels = 'aeiouyAEIOUY'
 consonants = ''.join(set(string.ascii_lowercase) - set(vowels))
-CV = tuple([c+v for c in consonants for v in vowels])
+CV = tuple([c + v for c in consonants for v in vowels])
+
+
 class UDPTunnel(multiprocessing.Process):
     """
 Object that implements an IP tunnel. It is used like this:
@@ -221,6 +260,7 @@ interface in the isolated network namespace. And then any socket works as expect
  local interface      |==========================|
 
     """
+
     def __init__(self, localtunnelend, remotetunnelend, verbose=False):
         self.localtunnelend = localtunnelend
         self.remotetunnelend = remotetunnelend
@@ -232,14 +272,14 @@ interface in the isolated network namespace. And then any socket works as expect
         self.semaphore = multiprocessing.Semaphore(0)
         multiprocessing.Process.__init__(self, daemon=True)
 
-
     def system(self, command):
         cmd = command.replace('{', '{0.').format(self).split()
         if self.verbose:
             ns = "({})".format(self.ns) if self.netnsfile else "(-)        "
             print("{}$ {}".format(ns, ' '.join(cmd)))
         try:
-            p = subprocess.run([a.strip('"') for a in cmd], check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            p = subprocess.run([a.strip('"') for a in cmd], check=True, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT)
         except Exception as e:
             print("{}--> {}".format(e.stdout.decode(errors='ignore'), e.returncode))
             raise
@@ -257,7 +297,7 @@ interface in the isolated network namespace. And then any socket works as expect
         self.system('ip address del dev {localif} ' + localip + '/32')
 
     def __enter__(self):
-        tag = random.choice(CV)+random.choice(CV)+random.choice(CV)
+        tag = random.choice(CV) + random.choice(CV) + random.choice(CV)
         self.ns = 'ns-{}'.format(tag)
         self.localif = 'loc-{}'.format(tag)
         self.remoteif = 'rem-{}'.format(tag)
@@ -312,7 +352,7 @@ interface in the isolated network namespace. And then any socket works as expect
         except:
             self.cleanup()
             raise
-            
+
         return self
 
     def __exit__(self, type, value, tb):
@@ -336,9 +376,9 @@ interface in the isolated network namespace. And then any socket works as expect
         self.semaphore.release()
         while True:
             try:
-                for key,mask in sel.select():
+                for key, mask in sel.select():
                     if key.fileobj == self.tunnelsocket:
-                        p,a = self.tunnelsocket.recvfrom(1000)
+                        p, a = self.tunnelsocket.recvfrom(1000)
                         if a != self.remotetunnelend:
                             continue
                         if self.verbose:
@@ -347,12 +387,12 @@ interface in the isolated network namespace. And then any socket works as expect
                         q = bytearray(ctypes.sizeof(Ether) + len(p))
                         q[ctypes.sizeof(Ether):] = p
                         e = Ether.from_buffer(q)
-                        e.source,e.destination = self.rawhwaddr,self.localhwaddr
+                        e.source, e.destination = self.rawhwaddr, self.localhwaddr
                         e.type = ETH_P_IP
                         self.rawsocket.sendto(bytes(q), (self.remoteif, ETH_P_IP, 0, 0, self.localhwaddr))
 
                     elif key.fileobj == self.rawsocket:
-                        p,a = self.rawsocket.recvfrom(1000)
+                        p, a = self.rawsocket.recvfrom(1000)
 
                         if a[1] == ETH_P_ARP:
                             q = bytearray(p)
@@ -366,10 +406,10 @@ interface in the isolated network namespace. And then any socket works as expect
                                 if arp.hwsrc == self.localhwaddr:
                                     if self.verbose:
                                         print("local-->ARP\n        Who has {}? Tell {}".format(arp.pdst, arp.psrc))
-                                    e.source,e.destination = self.rawhwaddr,e.source
+                                    e.source, e.destination = self.rawhwaddr, e.source
                                     arp.operation = 2
-                                    arp.hwsrc,arp.hwdst = self.rawhwaddr,arp.hwsrc
-                                    arp.psrc,arp.pdst = arp.pdst,arp.psrc
+                                    arp.hwsrc, arp.hwdst = self.rawhwaddr, arp.hwsrc
+                                    arp.psrc, arp.pdst = arp.pdst, arp.psrc
                                     if self.verbose:
                                         print("local<--ARP\n        {} is at {}".format(arp.psrc, arp.hwsrc))
                                     self.rawsocket.sendto(q, (self.remoteif, ETH_P_ARP, 0, 0, self.rawhwaddr))
@@ -387,8 +427,8 @@ interface in the isolated network namespace. And then any socket works as expect
         ippayloadlen = len(p) - ctypes.sizeof(IPv4)
         if i.protocol == 6:
             t = TCP.from_buffer_copy(p, ctypes.sizeof(IPv4))
-            flags = ', '.join((flag for flag in ('syn','ack','fin','psh','rst','urg') if getattr(t, flag)))
-            length = ippayloadlen - 4*t.offset
+            flags = ', '.join((flag for flag in ('syn', 'ack', 'fin', 'psh', 'rst', 'urg') if getattr(t, flag)))
+            length = ippayloadlen - 4 * t.offset
             disp = "tcp {} -> {} [{}] Len={}".format(t.source, t.destination, flags, length)
         elif i.protocol == 17:
             u = UDP.from_buffer_copy(p, ctypes.sizeof(IPv4))
